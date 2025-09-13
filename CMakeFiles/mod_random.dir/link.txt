@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -shared -Wl,-soname,mod_random.so -o mod_random.so CMakeFiles/mod_random.dir/src/mod_random.c.o 
