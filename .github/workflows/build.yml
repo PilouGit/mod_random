@@ -94,7 +94,7 @@ jobs:
 
 
   create-release:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
     needs: [build-ubuntu, build-rockylinux]
     runs-on: ubuntu-latest
     
