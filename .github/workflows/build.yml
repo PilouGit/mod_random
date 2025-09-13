@@ -63,7 +63,7 @@ jobs:
     - name: Install dependencies
       run: |
         dnf update -y
-        dnf install -y httpd-devel apr-devel cmake gcc gcc-c++ make
+        dnf install -y httpd-devel apr-devel cmake gcc gcc-c++ make file
     
     - name: Configure build
       run: |
@@ -115,11 +115,31 @@ jobs:
     
     - name: Download Apache binaries
       run: |
-        # Download Apache binaries for Windows
-        $url = "https://downloads.apache.org/httpd/binaries/windows/httpd-2.4.62-240718-win64-VS17.zip"
-        Invoke-WebRequest -Uri $url -OutFile "apache.zip"
+        # Try multiple Apache download sources
+        $urls = @(
+          "https://archive.apache.org/dist/httpd/binaries/windows/httpd-2.4.62-240718-win64-VS17.zip",
+          "https://downloads.apache.org/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip",
+          "https://archive.apache.org/dist/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip"
+        )
+        
+        $downloaded = $false
+        foreach ($url in $urls) {
+          try {
+            Write-Host "Trying to download from: $url"
+            Invoke-WebRequest -Uri $url -OutFile "apache.zip" -ErrorAction Stop
+            $downloaded = $true
+            break
+          } catch {
+            Write-Host "Failed to download from $url : $_"
+          }
+        }
+        
+        if (-not $downloaded) {
+          throw "Failed to download Apache from all sources"
+        }
+        
         Expand-Archive -Path "apache.zip" -DestinationPath "apache"
-        ls apache
+        Get-ChildItem apache -Recurse -Depth 2
     
     - name: Configure build with CMake
       run: |
