@@ -117,7 +117,7 @@ jobs:
       run: |
         # Try multiple Apache download sources
         $urls = @(
-          "https://archive.apache.org/dist/httpd/binaries/windows/httpd-2.4.62-240718-win64-VS17.zip",
+          "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.65-250724-Win64-VS17.zip",
           "https://downloads.apache.org/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip",
           "https://archive.apache.org/dist/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip"
         )
