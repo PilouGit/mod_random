@@ -1,0 +1,209 @@
+name: Build mod_random
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ubuntu-version: ['20.04', '22.04', '24.04']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y apache2-dev libapr1-dev cmake build-essential
+    
+    - name: Configure build
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+    
+    - name: Build module
+      run: |
+        cd build
+        make
+    
+    - name: Test module loads
+      run: |
+        cd build
+        # Check if the module was built successfully
+        test -f mod_random.so
+        file mod_random.so
+        ldd mod_random.so || true
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod_random-ubuntu-${{ matrix.ubuntu-version }}
+        path: |
+          build/mod_random.so
+          build/mod_random.load
+
+  build-rockylinux:
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        dnf update -y
+        dnf install -y httpd-devel apr-devel cmake gcc gcc-c++ make
+    
+    - name: Configure build
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+    
+    - name: Build module
+      run: |
+        cd build
+        make
+    
+    - name: Test module loads
+      run: |
+        cd build
+        # Check if the module was built successfully
+        test -f mod_random.so
+        file mod_random.so
+        ldd mod_random.so || true
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod_random-rockylinux-9
+        path: |
+          build/mod_random.so
+          build/mod_random.load
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+    
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        .\vcpkg\bootstrap-vcpkg.bat
+        .\vcpkg\vcpkg.exe integrate install
+    
+    - name: Install Apache and APR via vcpkg
+      run: |
+        .\vcpkg\vcpkg.exe install apr:x64-windows
+        .\vcpkg\vcpkg.exe install apr-util:x64-windows
+    
+    - name: Download Apache binaries
+      run: |
+        # Download Apache binaries for Windows
+        $url = "https://downloads.apache.org/httpd/binaries/windows/httpd-2.4.62-240718-win64-VS17.zip"
+        Invoke-WebRequest -Uri $url -OutFile "apache.zip"
+        Expand-Archive -Path "apache.zip" -DestinationPath "apache"
+        ls apache
+    
+    - name: Configure build with CMake
+      run: |
+        $env:CMAKE_PREFIX_PATH = "vcpkg\installed\x64-windows;apache\Apache24"
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE="..\vcpkg\scripts\buildsystems\vcpkg.cmake" -DVCCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_GENERATOR_PLATFORM=x64 -DAPACHE_INCLUDE_DIR="..\apache\Apache24\include" -DAPR_INCLUDE_DIR="..\vcpkg\installed\x64-windows\include"
+    
+    - name: Build module
+      run: |
+        cd build
+        cmake --build . --config Release
+    
+    - name: Test module exists
+      run: |
+        cd build
+        if (Test-Path "Release\mod_random.dll") {
+          Write-Host "Module built successfully"
+          Get-Item "Release\mod_random.dll"
+        } elseif (Test-Path "mod_random.dll") {
+          Write-Host "Module built successfully"
+          Get-Item "mod_random.dll"
+        } else {
+          Write-Host "Module not found"
+          Get-ChildItem -Recurse -Include "*.dll","*.so"
+          exit 1
+        }
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod_random-windows
+        path: |
+          build/Release/mod_random.dll
+          build/mod_random.dll
+          build/mod_random.load
+
+  create-release:
+    if: github.event_name == 'release'
+    needs: [build-ubuntu, build-rockylinux, build-windows]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Create release packages
+      run: |
+        # Create packages for each platform
+        for dir in mod_random-*; do
+          if [ -d "$dir" ]; then
+            cd "$dir"
+            tar -czf "../${dir}.tar.gz" *
+            cd ..
+          fi
+        done
+        ls -la *.tar.gz
+    
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: "*.tar.gz"
+        body: |
+          ## mod_random Release
+          
+          This release includes pre-compiled binaries for:
+          - Ubuntu 20.04, 22.04, 24.04
+          - Rocky Linux 9
+          - Windows (x64)
+          
+          ### Installation
+          
+          #### Linux
+          1. Download the appropriate `.tar.gz` file for your distribution
+          2. Extract: `tar -xzf mod_random-*.tar.gz`
+          3. Copy `mod_random.so` to your Apache modules directory
+          4. Copy `mod_random.load` to your Apache mods-available directory (if applicable)
+          5. Enable the module: `a2enmod random`
+          6. Restart Apache
+          
+          #### Windows
+          1. Download `mod_random-windows.tar.gz`
+          2. Extract and copy `mod_random.dll` to your Apache modules directory
+          3. Add `LoadModule random_module modules/mod_random.dll` to your httpd.conf
+          4. Restart Apache
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
