@@ -92,94 +92,10 @@ jobs:
           build/mod_random.so
           build/mod_random.load
 
-  build-windows:
-    runs-on: windows-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v2
-    
-    - name: Install vcpkg
-      run: |
-        git clone https://github.com/Microsoft/vcpkg.git
-        .\vcpkg\bootstrap-vcpkg.bat
-        .\vcpkg\vcpkg.exe integrate install
-    
-    - name: Install Apache and APR via vcpkg
-      run: |
-        .\vcpkg\vcpkg.exe install apr:x64-windows
-        .\vcpkg\vcpkg.exe install apr-util:x64-windows
-    
-    - name: Download Apache binaries
-      run: |
-        # Try multiple Apache download sources
-        $urls = @(
-          "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.65-250724-Win64-VS17.zip",
-          "https://downloads.apache.org/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip",
-          "https://archive.apache.org/dist/httpd/binaries/windows/httpd-2.4.58-230626-win64-VS17.zip"
-        )
-        
-        $downloaded = $false
-        foreach ($url in $urls) {
-          try {
-            Write-Host "Trying to download from: $url"
-            Invoke-WebRequest -Uri $url -OutFile "apache.zip" -ErrorAction Stop
-            $downloaded = $true
-            break
-          } catch {
-            Write-Host "Failed to download from $url : $_"
-          }
-        }
-        
-        if (-not $downloaded) {
-          throw "Failed to download Apache from all sources"
-        }
-        
-        Expand-Archive -Path "apache.zip" -DestinationPath "apache"
-        Get-ChildItem apache -Recurse -Depth 2
-    
-    - name: Configure build with CMake
-      run: |
-        $env:CMAKE_PREFIX_PATH = "vcpkg\installed\x64-windows;apache\Apache24"
-        mkdir build
-        cd build
-        cmake .. -DCMAKE_TOOLCHAIN_FILE="..\vcpkg\scripts\buildsystems\vcpkg.cmake" -DVCCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_GENERATOR_PLATFORM=x64 -DAPACHE_INCLUDE_DIR="..\apache\Apache24\include" -DAPR_INCLUDE_DIR="..\vcpkg\installed\x64-windows\include"
-    
-    - name: Build module
-      run: |
-        cd build
-        cmake --build . --config Release
-    
-    - name: Test module exists
-      run: |
-        cd build
-        if (Test-Path "Release\mod_random.dll") {
-          Write-Host "Module built successfully"
-          Get-Item "Release\mod_random.dll"
-        } elseif (Test-Path "mod_random.dll") {
-          Write-Host "Module built successfully"
-          Get-Item "mod_random.dll"
-        } else {
-          Write-Host "Module not found"
-          Get-ChildItem -Recurse -Include "*.dll","*.so"
-          exit 1
-        }
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: mod_random-windows
-        path: |
-          build/Release/mod_random.dll
-          build/mod_random.dll
-          build/mod_random.load
 
   create-release:
     if: github.event_name == 'release'
-    needs: [build-ubuntu, build-rockylinux, build-windows]
+    needs: [build-ubuntu, build-rockylinux]
     runs-on: ubuntu-latest
     
     steps:
@@ -208,7 +124,6 @@ jobs:
           This release includes pre-compiled binaries for:
           - Ubuntu 20.04, 22.04, 24.04
           - Rocky Linux 9
-          - Windows (x64)
           
           ### Installation
           
@@ -220,10 +135,5 @@ jobs:
           5. Enable the module: `a2enmod random`
           6. Restart Apache
           
-          #### Windows
-          1. Download `mod_random-windows.tar.gz`
-          2. Extract and copy `mod_random.dll` to your Apache modules directory
-          3. Add `LoadModule random_module modules/mod_random.dll` to your httpd.conf
-          4. Restart Apache
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
