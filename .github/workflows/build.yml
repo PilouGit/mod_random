@@ -3,6 +3,7 @@ name: Build mod_random
 on:
   push:
     branches: [ main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   release:
