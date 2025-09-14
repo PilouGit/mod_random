@@ -2,12 +2,12 @@ name: Build mod_random
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-  release:
-    types: [ published ]
-
+    tags:
+      - 'v*.*.*'
+permissions:
+  contents: write
+  releases: write
+  
 jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
