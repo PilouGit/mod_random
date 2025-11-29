@@ -31,6 +31,13 @@ if(NOT APR_INCLUDE_DIR)
     message(FATAL_ERROR "APR development headers not found. Please install libapr1-dev package.")
 endif()
 
+# Find OpenSSL
+find_package(OpenSSL REQUIRED)
+
+if(NOT OPENSSL_FOUND)
+    message(FATAL_ERROR "OpenSSL not found. Please install libssl-dev package.")
+endif()
+
 # Get Apache module directory
 execute_process(
     COMMAND apxs -q LIBEXECDIR
@@ -47,9 +54,16 @@ endif()
 # Include directories
 include_directories(${APACHE_INCLUDE_DIR})
 include_directories(${APR_INCLUDE_DIR})
+include_directories(${OPENSSL_INCLUDE_DIR})
 
 # Create shared library
-add_library(mod_random SHARED src/mod_random.c)
+add_library(mod_random SHARED
+    src/mod_random.c
+    src/mod_random_config.c
+    src/mod_random_encode.c
+    src/mod_random_crypto.c
+    src/mod_random_token.c
+)
 
 # Set module properties
 set_target_properties(mod_random PROPERTIES
@@ -59,6 +73,9 @@ set_target_properties(mod_random PROPERTIES
 
 # Compiler flags for position independent code
 target_compile_options(mod_random PRIVATE -fPIC)
+
+# Link with OpenSSL
+target_link_libraries(mod_random PRIVATE OpenSSL::Crypto)
 
 # Installation
 install(TARGETS mod_random
@@ -80,4 +97,6 @@ install(FILES "${CMAKE_BINARY_DIR}/mod_random.load"
 # Print build information
 message(STATUS "Apache include directory: ${APACHE_INCLUDE_DIR}")
 message(STATUS "APR include directory: ${APR_INCLUDE_DIR}")
+message(STATUS "OpenSSL include directory: ${OPENSSL_INCLUDE_DIR}")
+message(STATUS "OpenSSL version: ${OPENSSL_VERSION}")
 message(STATUS "Apache module directory: ${APACHE_MODULE_DIR}")

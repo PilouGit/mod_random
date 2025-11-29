@@ -4,13 +4,24 @@ An Apache module that generates cryptographically secure random base64-encoded s
 
 ## Features
 
+### Core Features
 - Generates cryptographically secure random bytes using Apache's `apr_generate_random_bytes()` (CSPRNG)
 - Automatically sets `RANDOM_STRING` environment variable on every request
 - Configurable random data length (1-1024 bytes, default: 16)
-- Base64 encoding for safe use in web contexts
+- Multiple output formats: base64, hex, base64url, custom alphabet
 - Hierarchical configuration with proper merge support
 - Minimal performance overhead
 - Thread-safe and production-ready
+
+### Advanced Features
+- **Multiple Tokens per Request**: Generate different tokens with individual configurations using `RandomAddToken`
+- **Custom Alphabets**: Define custom character sets for human-readable codes (e.g., `ABCD-1234-EFGH`)
+- **Metadata Encoding**: Encode expiration timestamps into tokens with optional HMAC-SHA1 signatures for validation
+- **TTL Caching**: Cache tokens for configurable time periods to reduce generation overhead
+- **URL Pattern Matching**: Conditionally generate tokens based on URL regex patterns
+- **Timestamp Prefixes**: Include sortable Unix timestamps in tokens
+- **Custom Prefixes/Suffixes**: Add custom text before/after tokens
+- **HTTP Header Injection**: Automatically inject tokens into response headers
 
 ## Installation
 
@@ -68,8 +79,33 @@ LoadModule random_module modules/mod_random.so
 
 ### Available Directives
 
+#### Basic Directives
 - **`RandomEnabled On|Off`**: Enable or disable the module for the current context (default: Off)
 - **`RandomLength N`**: Set the length in bytes of random data to generate (default: 16, range: 1-1024)
+- **`RandomFormat format`**: Set output format: `base64`, `hex`, `base64url`, or `custom` (default: base64)
+- **`RandomVarName name`**: Set environment variable name (default: RANDOM_STRING)
+- **`RandomHeader name`**: Set HTTP response header name to auto-inject token (optional)
+
+#### Advanced Directives
+- **`RandomIncludeTimestamp On|Off`**: Include Unix timestamp prefix in token (default: Off)
+- **`RandomPrefix text`**: Set prefix to prepend to token (optional)
+- **`RandomSuffix text`**: Set suffix to append to token (optional)
+- **`RandomOnlyFor pattern`**: Regex pattern to match URLs for conditional generation (optional)
+- **`RandomTTL seconds`**: Cache token for N seconds (0-86400, default: 0 = no cache)
+
+#### Custom Alphabet Directives
+- **`RandomAlphabet charset`**: Set custom character set for 'custom' format (e.g., '0123456789ABCDEFGHJKMNPQRSTVWXYZ')
+- **`RandomAlphabetGrouping N`**: Group custom alphabet output every N characters with '-' (0 = no grouping)
+
+#### Metadata & Validation Directives
+- **`RandomExpiry seconds`**: Set token expiration time in seconds (0-31536000, requires RandomEncodeMetadata On)
+- **`RandomEncodeMetadata On|Off`**: Encode expiry metadata into token (requires RandomExpiry > 0)
+- **`RandomSigningKey key`**: Set HMAC-SHA1 signing key for token validation (optional, for metadata mode)
+
+#### Multi-Token Directive
+- **`RandomAddToken VAR_NAME [key=value ...]`**: Add a token with custom configuration
+  - Supported keys: `length`, `format`, `header`, `timestamp`, `prefix`, `suffix`, `ttl`
+  - Example: `RandomAddToken CSRF_TOKEN length=32 format=base64url header=X-CSRF-Token ttl=3600`
 
 ### How It Works
 
@@ -144,6 +180,69 @@ RewriteEngine On
 RewriteRule ^(.*)$ - [E=REQUEST_ID:%{RANDOM_STRING}e]
 ```
 
+#### Multiple tokens with different configurations
+
+```apache
+<Location /api>
+    # Generate multiple tokens per request
+    RandomAddToken CSRF_TOKEN length=32 format=base64url header=X-CSRF-Token ttl=3600
+    RandomAddToken REQUEST_ID length=16 format=hex timestamp=on header=X-Request-ID
+    RandomAddToken SESSION_NONCE length=24 prefix=sess_ format=base64
+</Location>
+```
+
+#### Human-readable codes with custom alphabet
+
+```apache
+<Location /vouchers>
+    RandomEnabled On
+    RandomFormat custom
+    RandomAlphabet "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+    RandomAlphabetGrouping 4
+    RandomLength 12
+    # Generates codes like: ABCD-1234-EFGH
+</Location>
+```
+
+#### Tokens with expiration and validation
+
+```apache
+<Location /secure>
+    RandomEnabled On
+    RandomLength 24
+    RandomFormat base64url
+    RandomExpiry 3600
+    RandomEncodeMetadata On
+    RandomSigningKey "your-secret-key-here"
+    # Generates: 1735567890:token_data:hmac_signature
+</Location>
+```
+
+#### Combined advanced features
+
+```apache
+<VirtualHost *:443>
+    <Location /api/v1>
+        # High-security API tokens with all features
+        RandomAddToken API_TOKEN length=32 format=base64url ttl=300
+        RandomExpiry 900
+        RandomEncodeMetadata On
+        RandomSigningKey "api-secret-key-2025"
+        RandomOnlyFor "^/api/v1/(protected|admin)/"
+    </Location>
+
+    <Location /vouchers>
+        # User-friendly voucher codes
+        RandomEnabled On
+        RandomFormat custom
+        RandomAlphabet "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+        RandomAlphabetGrouping 4
+        RandomLength 16
+        RandomPrefix "VCH-"
+    </Location>
+</VirtualHost>
+```
+
 ## Environment Variable
 
 The module sets the following environment variable on each request:
@@ -211,6 +310,62 @@ RandomLength 32
 RequestHeader set X-Session-Nonce "%{RANDOM_STRING}e"
 ```
 
+### Validating Tokens with Metadata Encoding
+
+When using `RandomEncodeMetadata On` with `RandomExpiry` and optionally `RandomSigningKey`, tokens are generated in the format:
+- Without signature: `expiry_timestamp:token_data`
+- With signature: `expiry_timestamp:token_data:hmac_signature`
+
+Example PHP validation code:
+
+```php
+<?php
+function validate_token($token, $signing_key = null) {
+    $parts = explode(':', $token);
+
+    if (count($parts) < 2) {
+        return ['valid' => false, 'error' => 'Invalid token format'];
+    }
+
+    $expiry = (int)$parts[0];
+    $data = $parts[1];
+    $signature = isset($parts[2]) ? $parts[2] : null;
+
+    // Check expiration
+    if (time() > $expiry) {
+        return ['valid' => false, 'error' => 'Token expired'];
+    }
+
+    // Verify signature if present
+    if ($signature && $signing_key) {
+        $payload = $expiry . ':' . $data;
+        $expected_signature = hash_hmac('sha1', $payload, $signing_key);
+
+        if (!hash_equals($expected_signature, $signature)) {
+            return ['valid' => false, 'error' => 'Invalid signature'];
+        }
+    }
+
+    return [
+        'valid' => true,
+        'expiry' => $expiry,
+        'data' => $data,
+        'remaining_ttl' => $expiry - time()
+    ];
+}
+
+// Usage
+$token = $_SERVER['RANDOM_STRING'] ?? '';
+$result = validate_token($token, 'your-secret-key-here');
+
+if ($result['valid']) {
+    echo "Token is valid, expires in " . $result['remaining_ttl'] . " seconds";
+} else {
+    echo "Token validation failed: " . $result['error'];
+}
+?>
+```
+
 ## Technical Details
 
 ### Cryptographic Security
@@ -227,17 +382,38 @@ RequestHeader set X-Session-Nonce "%{RANDOM_STRING}e"
 
 ### Output Length
 
-The final base64 string length will be approximately 4/3 of the configured byte length:
-- 16 bytes (default) yields approximately 22 characters
-- 24 bytes yields approximately 32 characters
-- 32 bytes yields approximately 44 characters
-- 64 bytes yields approximately 88 characters
+The final string length depends on the format used:
+
+**Base64 format** (default): Approximately 4/3 of configured byte length
+- 16 bytes → ~22 characters
+- 24 bytes → ~32 characters
+- 32 bytes → ~44 characters
+
+**Hex format**: Exactly 2x configured byte length
+- 16 bytes → 32 characters
+- 32 bytes → 64 characters
+
+**Base64URL format**: Similar to base64 but URL-safe (no padding)
+- 16 bytes → ~22 characters (no = padding)
+
+**Custom alphabet format**: Variable length based on alphabet size
+- With 32-character alphabet: ~1.6x byte length
+- With grouping enabled: additional separator characters
+
+### Signature & Metadata
+
+When using `RandomEncodeMetadata On`:
+- **Format**: `timestamp:token[:signature]`
+- **Timestamp**: Unix timestamp (10 digits)
+- **Signature**: HMAC-SHA1 in hex (40 characters)
+- **Total overhead**: 11-51 additional characters
 
 ### Performance
 
 - **Minimal overhead**: Random generation only occurs when enabled
 - **Memory efficient**: Uses Apache's pool-based allocation
 - **Thread-safe**: Fully compatible with all Apache MPMs (prefork, worker, event)
+- **TTL caching**: Reduces generation overhead for high-traffic scenarios
 - **No logging overhead**: Debug logging has been removed for production use
 
 ## Security Considerations
@@ -248,19 +424,35 @@ The final base64 string length will be approximately 4/3 of the configured byte 
 - No predictable patterns in generated strings
 - Memory automatically cleaned up via Apache's pool system
 - Safe for security-sensitive applications (CSRF, nonces, etc.)
+- HMAC-SHA1 signatures prevent token tampering when enabled
+- Metadata encoding enables server-side expiration validation
+- Thread-safe implementation with mutex-protected caching
 
 ### Limitations
 
 - NOT suitable as sole mechanism for unique ID generation (use `mod_unique_id` instead)
 - Collision probability exists (though negligible with 16+ bytes)
-- Generated tokens are random, not sequential or sortable
+- Generated tokens are random, not sequential or sortable (unless timestamp prefix enabled)
+- HMAC uses SHA1 (consider upgrading to SHA256 if security requirements demand it)
+- Signing key is stored in plain text in Apache configuration (use file-based secrets in production)
 
 ### Best Practices
 
-- Use at least 16 bytes (128 bits) for security-sensitive tokens
-- For CSRF tokens: 24-32 bytes recommended
-- For nonces: 16-24 bytes typically sufficient
-- For request IDs: 16 bytes usually adequate (collision risk acceptable)
+**Token Length Recommendations:**
+- CSRF tokens: 24-32 bytes recommended
+- API tokens: 32+ bytes for high-security applications
+- Nonces (CSP, etc.): 16-24 bytes typically sufficient
+- Request IDs: 16 bytes usually adequate (collision risk acceptable)
+- Custom alphabet codes: 12-16 bytes for human-readable vouchers
+
+**Security Best Practices:**
+- Always use `RandomEncodeMetadata On` with `RandomExpiry` for time-limited tokens
+- Use `RandomSigningKey` to prevent token tampering in untrusted environments
+- Rotate signing keys periodically (monthly or quarterly)
+- Use `RandomOnlyFor` to restrict token generation to specific URL patterns
+- Validate tokens server-side before trusting them
+- Use `RandomFormat base64url` for tokens passed in URLs or headers
+- For public-facing codes, use custom alphabets without ambiguous characters (avoid 0/O, 1/I/l)
 
 ## Compatibility
 
