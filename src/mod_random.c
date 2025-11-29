@@ -19,6 +19,7 @@
  */
 
 #include "mod_random.h"
+#include "http_log.h"
 #include "http_protocol.h"
 #include "http_request.h"
 
@@ -54,7 +55,7 @@ static int random_fixups(request_rec *r)
     final_length = (cfg->length != RANDOM_LENGTH_UNSET) ? cfg->length : RANDOM_LENGTH_DEFAULT;
     final_format = (cfg->format != RANDOM_FORMAT_UNSET) ? cfg->format : RANDOM_FORMAT_BASE64;
     final_include_timestamp = (cfg->include_timestamp != RANDOM_ENABLED_UNSET) ? cfg->include_timestamp : 0;
-    final_ttl = (cfg->ttl_seconds != RANDOM_LENGTH_UNSET) ? cfg->ttl_seconds : 0;
+    final_ttl = (cfg->ttl_seconds != RANDOM_TTL_UNSET) ? cfg->ttl_seconds : 0;
 
     /* Check URL pattern if configured */
     if (cfg->url_pattern) {
@@ -72,6 +73,14 @@ static int random_fixups(request_rec *r)
                                                       final_ttl,
                                                       &spec->cached_token, &spec->cache_time,
                                                       spec->cache_mutex, spec->pool);
+
+        /* Check if token generation failed (CSPRNG error) */
+        if (!final_token) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                         "mod_random: Failed to generate token for %s - skipping",
+                         spec->var_name);
+            continue; /* Skip this token but try to generate others */
+        }
 
         /* Set environment variable */
         apr_table_set(r->subprocess_env, spec->var_name, final_token);

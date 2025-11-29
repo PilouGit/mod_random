@@ -13,10 +13,22 @@
 #define RANDOM_LENGTH_DEFAULT  16    /* 128 bits of entropy */
 #define RANDOM_LENGTH_MIN      1     /* Minimum allowed length */
 #define RANDOM_LENGTH_MAX      1024  /* Maximum to prevent DoS */
-#define RANDOM_LENGTH_UNSET    -1    /* Sentinel: not configured */
-#define RANDOM_ENABLED_UNSET   -1    /* Sentinel: not configured */
-#define RANDOM_FORMAT_UNSET    -1    /* Sentinel: not configured */
-#define RANDOM_MAX_TOKENS      50    /* Maximum tokens per context to prevent DoS */
+
+/* Sentinel values (unset/not configured) */
+#define RANDOM_LENGTH_UNSET    -1    /* Sentinel: length not configured */
+#define RANDOM_ENABLED_UNSET   -1    /* Sentinel: boolean not configured */
+#define RANDOM_FORMAT_UNSET    -1    /* Sentinel: format not configured */
+#define RANDOM_GROUPING_UNSET  -1    /* Sentinel: grouping not configured */
+#define RANDOM_EXPIRY_UNSET    -1    /* Sentinel: expiry not configured */
+#define RANDOM_TTL_UNSET       -1    /* Sentinel: TTL not configured */
+
+/* Limits to prevent DoS */
+#define RANDOM_MAX_TOKENS          50      /* Maximum tokens per context */
+#define RANDOM_TTL_MAX_SECONDS     86400   /* 24 hours */
+#define RANDOM_EXPIRY_MAX_SECONDS  31536000 /* 1 year */
+#define RANDOM_ALPHABET_MAX_SIZE   256     /* Maximum alphabet size */
+#define RANDOM_ALPHABET_MIN_SIZE   2       /* Minimum alphabet size */
+#define RANDOM_GROUPING_MAX        128     /* Maximum grouping size */
 
 /* Output format types */
 typedef enum {

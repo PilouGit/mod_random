@@ -1,0 +1,19 @@
+{
+    // Format automatique
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+        80
+    ],
+    // clang-format
+    "C_Cpp.clang_format_fallbackStyle": "file",
+    "C_Cpp.clang_format_style": "file",
+    // clang-tidy
+    "C_Cpp.clang_tidy.enabled": true,
+    "C_Cpp.clang_tidy.path": "/usr/bin/clang-tidy", // modifier selon ton OS
+    "C_Cpp.clang_tidy.args": [
+        "--quiet"
+    ],
+    // Autres
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true
+}

@@ -9,6 +9,34 @@
 #include <strings.h>
 #include <string.h>
 
+/* Helper function to copy a token spec to a new pool */
+static random_token_spec *copy_token_spec(apr_pool_t *pool, random_token_spec *src)
+{
+    random_token_spec *new_spec = apr_pcalloc(pool, sizeof(random_token_spec));
+
+    new_spec->var_name = src->var_name;
+    new_spec->length = src->length;
+    new_spec->format = src->format;
+    new_spec->header_name = src->header_name;
+    new_spec->include_timestamp = src->include_timestamp;
+    new_spec->prefix = src->prefix;
+    new_spec->suffix = src->suffix;
+    new_spec->ttl_seconds = src->ttl_seconds;
+    new_spec->cached_token = NULL;  /* Don't inherit cache */
+    new_spec->cache_time = 0;
+    new_spec->pool = pool;
+    new_spec->next = NULL;
+
+    /* Thread-safe cache requires mutex - verify creation succeeded */
+    if (apr_thread_mutex_create(&new_spec->cache_mutex,
+                                APR_THREAD_MUTEX_DEFAULT, pool) != APR_SUCCESS) {
+        /* Mutex creation failed - disable caching for this token */
+        new_spec->cache_mutex = NULL;
+    }
+
+    return new_spec;
+}
+
 /* Create per-directory configuration */
 void *random_create_config(apr_pool_t *pool, char *dir)
 {
@@ -20,7 +48,7 @@ void *random_create_config(apr_pool_t *pool, char *dir)
     cfg->include_timestamp = RANDOM_ENABLED_UNSET;
     cfg->prefix = NULL;
     cfg->suffix = NULL;
-    cfg->ttl_seconds = RANDOM_LENGTH_UNSET;
+    cfg->ttl_seconds = RANDOM_TTL_UNSET;
 
     /* Global settings */
     cfg->url_pattern = NULL;
@@ -29,10 +57,10 @@ void *random_create_config(apr_pool_t *pool, char *dir)
 
     /* Custom alphabet settings */
     cfg->custom_alphabet = NULL;
-    cfg->alphabet_grouping = 0;
+    cfg->alphabet_grouping = RANDOM_GROUPING_UNSET;
 
     /* Metadata encoding settings */
-    cfg->expiry_seconds = 0;
+    cfg->expiry_seconds = RANDOM_EXPIRY_UNSET;
     cfg->encode_metadata = RANDOM_ENABLED_UNSET;
     cfg->signing_key = NULL;
 
@@ -53,7 +81,7 @@ void *random_merge_config(apr_pool_t *pool, void *base, void *override)
     merged->include_timestamp = (child->include_timestamp != RANDOM_ENABLED_UNSET) ? child->include_timestamp : parent->include_timestamp;
     merged->prefix = child->prefix ? child->prefix : parent->prefix;
     merged->suffix = child->suffix ? child->suffix : parent->suffix;
-    merged->ttl_seconds = (child->ttl_seconds != RANDOM_LENGTH_UNSET) ? child->ttl_seconds : parent->ttl_seconds;
+    merged->ttl_seconds = (child->ttl_seconds != RANDOM_TTL_UNSET) ? child->ttl_seconds : parent->ttl_seconds;
 
     /* Global settings */
     merged->url_pattern = child->url_pattern ? child->url_pattern : parent->url_pattern;
@@ -61,32 +89,25 @@ void *random_merge_config(apr_pool_t *pool, void *base, void *override)
 
     /* Custom alphabet settings */
     merged->custom_alphabet = child->custom_alphabet ? child->custom_alphabet : parent->custom_alphabet;
-    merged->alphabet_grouping = child->alphabet_grouping ? child->alphabet_grouping : parent->alphabet_grouping;
+    merged->alphabet_grouping = (child->alphabet_grouping != RANDOM_GROUPING_UNSET) ? child->alphabet_grouping : parent->alphabet_grouping;
 
     /* Metadata encoding settings */
-    merged->expiry_seconds = child->expiry_seconds ? child->expiry_seconds : parent->expiry_seconds;
+    merged->expiry_seconds = (child->expiry_seconds != RANDOM_EXPIRY_UNSET) ? child->expiry_seconds : parent->expiry_seconds;
     merged->encode_metadata = (child->encode_metadata != RANDOM_ENABLED_UNSET) ? child->encode_metadata : parent->encode_metadata;
     merged->signing_key = child->signing_key ? child->signing_key : parent->signing_key;
 
     /* Merge token specs: inherit parent's tokens, then add child's tokens */
     merged->token_specs = NULL;
+    int token_count = 0;
 
     /* Copy parent's token specs */
     for (spec = parent->token_specs; spec; spec = spec->next) {
-        new_spec = apr_pcalloc(pool, sizeof(random_token_spec));
-        new_spec->var_name = spec->var_name;
-        new_spec->length = spec->length;
-        new_spec->format = spec->format;
-        new_spec->header_name = spec->header_name;
-        new_spec->include_timestamp = spec->include_timestamp;
-        new_spec->prefix = spec->prefix;
-        new_spec->suffix = spec->suffix;
-        new_spec->ttl_seconds = spec->ttl_seconds;
-        new_spec->cached_token = NULL;  /* Don't inherit cache */
-        new_spec->cache_time = 0;
-        new_spec->pool = pool;
-        new_spec->next = NULL;
-        apr_thread_mutex_create(&new_spec->cache_mutex, APR_THREAD_MUTEX_DEFAULT, pool);
+        /* Enforce RANDOM_MAX_TOKENS limit to prevent DoS via config merge */
+        if (token_count >= RANDOM_MAX_TOKENS) {
+            break;  /* Silently skip excess tokens - logged at server startup */
+        }
+
+        new_spec = copy_token_spec(pool, spec);
 
         if (!merged->token_specs) {
             merged->token_specs = new_spec;
@@ -94,24 +115,17 @@ void *random_merge_config(apr_pool_t *pool, void *base, void *override)
             last_spec->next = new_spec;
         }
         last_spec = new_spec;
+        token_count++;
     }
 
     /* Append child's token specs */
     for (spec = child->token_specs; spec; spec = spec->next) {
-        new_spec = apr_pcalloc(pool, sizeof(random_token_spec));
-        new_spec->var_name = spec->var_name;
-        new_spec->length = spec->length;
-        new_spec->format = spec->format;
-        new_spec->header_name = spec->header_name;
-        new_spec->include_timestamp = spec->include_timestamp;
-        new_spec->prefix = spec->prefix;
-        new_spec->suffix = spec->suffix;
-        new_spec->ttl_seconds = spec->ttl_seconds;
-        new_spec->cached_token = NULL;  /* Don't inherit cache */
-        new_spec->cache_time = 0;
-        new_spec->pool = pool;
-        new_spec->next = NULL;
-        apr_thread_mutex_create(&new_spec->cache_mutex, APR_THREAD_MUTEX_DEFAULT, pool);
+        /* Enforce RANDOM_MAX_TOKENS limit to prevent DoS via config merge */
+        if (token_count >= RANDOM_MAX_TOKENS) {
+            break;  /* Silently skip excess tokens - logged at server startup */
+        }
+
+        new_spec = copy_token_spec(pool, spec);
 
         if (!merged->token_specs) {
             merged->token_specs = new_spec;
@@ -119,6 +133,7 @@ void *random_merge_config(apr_pool_t *pool, void *base, void *override)
             last_spec->next = new_spec;
         }
         last_spec = new_spec;
+        token_count++;
     }
 
     return merged;
@@ -198,8 +213,8 @@ static const char *set_random_ttl(cmd_parms *cmd, void *cfg, const char *arg)
     char *endptr;
     long ttl = strtol(arg, &endptr, 10);
 
-    if (*endptr != '\0' || ttl < 0 || ttl > 86400) {
-        return "RandomTTL must be between 0 and 86400 seconds (24 hours)";
+    if (*endptr != '\0' || ttl < 0 || ttl > RANDOM_TTL_MAX_SECONDS) {
+        return apr_psprintf(cmd->pool, "RandomTTL must be between 0 and %d seconds (24 hours)", RANDOM_TTL_MAX_SECONDS);
     }
 
     config->ttl_seconds = (int)ttl;
@@ -217,12 +232,12 @@ static const char *set_random_alphabet(cmd_parms *cmd, void *cfg, const char *ar
     }
 
     len = strlen(arg);
-    if (len < 2) {
-        return "RandomAlphabet: alphabet must contain at least 2 characters";
+    if (len < RANDOM_ALPHABET_MIN_SIZE) {
+        return apr_psprintf(cmd->pool, "RandomAlphabet: alphabet must contain at least %d characters", RANDOM_ALPHABET_MIN_SIZE);
     }
 
-    if (len > 256) {
-        return "RandomAlphabet: alphabet too long (max 256 characters)";
+    if (len > RANDOM_ALPHABET_MAX_SIZE) {
+        return apr_psprintf(cmd->pool, "RandomAlphabet: alphabet too long (max %d characters)", RANDOM_ALPHABET_MAX_SIZE);
     }
 
     /* Check for duplicate characters */
@@ -245,8 +260,8 @@ static const char *set_alphabet_grouping(cmd_parms *cmd, void *cfg, const char *
     char *endptr;
     long grouping = strtol(arg, &endptr, 10);
 
-    if (*endptr != '\0' || grouping < 0 || grouping > 128) {
-        return "RandomAlphabetGrouping must be between 0 and 128 (0 = no grouping)";
+    if (*endptr != '\0' || grouping < 0 || grouping > RANDOM_GROUPING_MAX) {
+        return apr_psprintf(cmd->pool, "RandomAlphabetGrouping must be between 0 and %d (0 = no grouping)", RANDOM_GROUPING_MAX);
     }
 
     config->alphabet_grouping = (int)grouping;
@@ -259,8 +274,8 @@ static const char *set_random_expiry(cmd_parms *cmd, void *cfg, const char *arg)
     char *endptr;
     long expiry = strtol(arg, &endptr, 10);
 
-    if (*endptr != '\0' || expiry < 0 || expiry > 31536000) {
-        return "RandomExpiry must be between 0 and 31536000 seconds (1 year)";
+    if (*endptr != '\0' || expiry < 0 || expiry > RANDOM_EXPIRY_MAX_SECONDS) {
+        return apr_psprintf(cmd->pool, "RandomExpiry must be between 0 and %d seconds (1 year)", RANDOM_EXPIRY_MAX_SECONDS);
     }
 
     config->expiry_seconds = (int)expiry;
@@ -326,14 +341,17 @@ static const char *add_random_token(cmd_parms *cmd, void *cfg, const char *args)
     spec->include_timestamp = RANDOM_ENABLED_UNSET;
     spec->prefix = NULL;
     spec->suffix = NULL;
-    spec->ttl_seconds = RANDOM_LENGTH_UNSET;
+    spec->ttl_seconds = RANDOM_TTL_UNSET;
     spec->cached_token = NULL;
     spec->cache_time = 0;
     spec->pool = cmd->pool;
     spec->next = NULL;
 
     /* Create mutex for this token's cache protection (thread-safe) */
-    apr_thread_mutex_create(&spec->cache_mutex, APR_THREAD_MUTEX_DEFAULT, cmd->pool);
+    if (apr_thread_mutex_create(&spec->cache_mutex, APR_THREAD_MUTEX_DEFAULT, cmd->pool) != APR_SUCCESS) {
+            /* Mutex creation failed - disable caching for this token */
+            spec->cache_mutex = NULL;
+        }
 
     /* Parse optional key=value arguments */
     token = apr_strtok(NULL, " \t", &args_copy);
@@ -380,8 +398,9 @@ static const char *add_random_token(cmd_parms *cmd, void *cfg, const char *args)
             spec->suffix = apr_pstrdup(cmd->pool, value);
         } else if (strcasecmp(key, "ttl") == 0) {
             num_val = strtol(value, &endptr, 10);
-            if (*endptr != '\0' || num_val < 0 || num_val > 86400) {
-                return apr_psprintf(cmd->pool, "RandomAddToken: invalid ttl %ld (must be 0-86400)", num_val);
+            if (*endptr != '\0' || num_val < 0 || num_val > RANDOM_TTL_MAX_SECONDS) {
+                return apr_psprintf(cmd->pool, "RandomAddToken: invalid ttl %ld (must be 0-%d)",
+                                   num_val, RANDOM_TTL_MAX_SECONDS);
             }
             spec->ttl_seconds = (int)num_val;
         } else {
@@ -430,7 +449,7 @@ const command_rec random_directives[] = {
     AP_INIT_FLAG("RandomEncodeMetadata", set_encode_metadata, NULL, OR_ALL,
                  "Encode expiry metadata into token (requires RandomExpiry > 0)"),
     AP_INIT_TAKE1("RandomSigningKey", set_signing_key, NULL, OR_ALL,
-                  "Set HMAC-SHA1 signing key for token validation (optional, for metadata mode)"),
+                  "Set HMAC-SHA256 signing key for token validation (optional, for metadata mode)"),
     AP_INIT_RAW_ARGS("RandomAddToken", add_random_token, NULL, OR_ALL,
                      "Add a token with custom configuration: RandomAddToken VAR_NAME [key=value ...]"),
     {NULL}

@@ -34,8 +34,8 @@ char *random_encode_with_metadata(apr_pool_t *pool, const char *token,
                                   int expiry_seconds, const char *signing_key);
 
 /* Token generation (mod_random_token.c) */
-char *random_generate_token_from_spec(request_rec *r, random_config *cfg,
-                                      random_token_spec *spec,
+char *random_generate_token_from_spec(request_rec *r, const random_config *cfg,
+                                      const random_token_spec *spec,
                                       int default_length, random_format_t default_format,
                                       int default_timestamp,
                                       const char *default_prefix, const char *default_suffix,

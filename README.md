@@ -16,7 +16,7 @@ An Apache module that generates cryptographically secure random base64-encoded s
 ### Advanced Features
 - **Multiple Tokens per Request**: Generate different tokens with individual configurations using `RandomAddToken`
 - **Custom Alphabets**: Define custom character sets for human-readable codes (e.g., `ABCD-1234-EFGH`)
-- **Metadata Encoding**: Encode expiration timestamps into tokens with optional HMAC-SHA1 signatures for validation
+- **Metadata Encoding**: Encode expiration timestamps into tokens with optional HMAC-SHA256 signatures for validation
 - **TTL Caching**: Cache tokens for configurable time periods to reduce generation overhead
 - **URL Pattern Matching**: Conditionally generate tokens based on URL regex patterns
 - **Timestamp Prefixes**: Include sortable Unix timestamps in tokens
@@ -100,7 +100,7 @@ LoadModule random_module modules/mod_random.so
 #### Metadata & Validation Directives
 - **`RandomExpiry seconds`**: Set token expiration time in seconds (0-31536000, requires RandomEncodeMetadata On)
 - **`RandomEncodeMetadata On|Off`**: Encode expiry metadata into token (requires RandomExpiry > 0)
-- **`RandomSigningKey key`**: Set HMAC-SHA1 signing key for token validation (optional, for metadata mode)
+- **`RandomSigningKey key`**: Set HMAC-SHA256 signing key for token validation (optional, for metadata mode)
 
 #### Multi-Token Directive
 - **`RandomAddToken VAR_NAME [key=value ...]`**: Add a token with custom configuration
@@ -339,7 +339,7 @@ function validate_token($token, $signing_key = null) {
     // Verify signature if present
     if ($signature && $signing_key) {
         $payload = $expiry . ':' . $data;
-        $expected_signature = hash_hmac('sha1', $payload, $signing_key);
+        $expected_signature = hash_hmac('sha256', $payload, $signing_key);
 
         if (!hash_equals($expected_signature, $signature)) {
             return ['valid' => false, 'error' => 'Invalid signature'];
@@ -405,8 +405,8 @@ The final string length depends on the format used:
 When using `RandomEncodeMetadata On`:
 - **Format**: `timestamp:token[:signature]`
 - **Timestamp**: Unix timestamp (10 digits)
-- **Signature**: HMAC-SHA1 in hex (40 characters)
-- **Total overhead**: 11-51 additional characters
+- **Signature**: HMAC-SHA256 in hex (64 characters)
+- **Total overhead**: 11-75 additional characters
 
 ### Performance
 
@@ -420,20 +420,20 @@ When using `RandomEncodeMetadata On`:
 
 ### Strengths
 
-- Uses cryptographically secure random number generation (CSPRNG)
+- Uses cryptographically secure random number generation (CSPRNG) with error checking
+- CSPRNG failures are detected and logged as critical errors
 - No predictable patterns in generated strings
 - Memory automatically cleaned up via Apache's pool system
 - Safe for security-sensitive applications (CSRF, nonces, etc.)
-- HMAC-SHA1 signatures prevent token tampering when enabled
+- HMAC-SHA256 signatures prevent token tampering when enabled
 - Metadata encoding enables server-side expiration validation
-- Thread-safe implementation with mutex-protected caching
+- Thread-safe implementation with mutex-protected caching and error handling
 
 ### Limitations
 
 - NOT suitable as sole mechanism for unique ID generation (use `mod_unique_id` instead)
 - Collision probability exists (though negligible with 16+ bytes)
 - Generated tokens are random, not sequential or sortable (unless timestamp prefix enabled)
-- HMAC uses SHA1 (consider upgrading to SHA256 if security requirements demand it)
 - Signing key is stored in plain text in Apache configuration (use file-based secrets in production)
 
 ### Best Practices
@@ -453,6 +453,45 @@ When using `RandomEncodeMetadata On`:
 - Validate tokens server-side before trusting them
 - Use `RandomFormat base64url` for tokens passed in URLs or headers
 - For public-facing codes, use custom alphabets without ambiguous characters (avoid 0/O, 1/I/l)
+
+## Recent Security Improvements
+
+**Version 3.x includes critical security enhancements:**
+
+### CSPRNG Error Detection (Critical)
+- Added verification of `apr_generate_random_bytes()` return value
+- CSPRNG failures now logged as **APLOG_CRIT** and token generation aborted
+- Prevents use of uninitialized or predictable random data
+- **Impact**: Eliminates risk of weak tokens due to system entropy exhaustion
+
+### Thread-Safety Improvements (Important)
+- Added error checking for mutex creation (`apr_thread_mutex_create`)
+- Failed mutex creation gracefully disables caching instead of crashing
+- Prevents potential NULL pointer dereferences in concurrent requests
+- **Impact**: Improved stability under high concurrency
+
+### Configuration Merge Fixes (Important)
+- Fixed incorrect merge behavior for `RandomAlphabetGrouping=0` and `RandomExpiry=0`
+- Added proper sentinel values (`RANDOM_GROUPING_UNSET`, `RANDOM_EXPIRY_UNSET`)
+- Child configuration now correctly overrides parent when explicitly set to 0
+- **Impact**: Configuration now behaves as documented
+
+### HMAC Upgrade (Security)
+- Upgraded from HMAC-SHA1 to **HMAC-SHA256** for token signatures
+- SHA256 provides 256-bit security vs SHA1's theoretical weaknesses
+- Update your validation code: `hash_hmac('sha256', ...)` instead of `hash_hmac('sha1', ...)`
+- **Impact**: Stronger cryptographic protection against token tampering
+
+### Code Quality Improvements
+- Eliminated magic numbers with defined constants (`RANDOM_TTL_MAX_SECONDS`, etc.)
+- Improved buffer size calculations in custom alphabet encoding
+- Reduced code duplication with helper functions
+- Enhanced logging for debugging and security monitoring
+
+**Migration Notes:**
+- **HMAC signature change**: If using `RandomSigningKey`, tokens generated before v3.x are incompatible
+- **No action required** for most users (backwards compatible for non-signed tokens)
+- Update any server-side validation code to use SHA256 instead of SHA1
 
 ## Compatibility
 

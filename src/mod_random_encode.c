@@ -135,9 +135,17 @@ char *random_generate_string_ex(apr_pool_t *pool, int length, random_format_t fo
     unsigned char *random_bytes;
     char *result;
     int encoded_len;
+    apr_status_t rv;
 
     random_bytes = apr_palloc(pool, length);
-    apr_generate_random_bytes(random_bytes, length);
+
+    /* CRITICAL: Verify CSPRNG succeeded - security depends on this */
+    rv = apr_generate_random_bytes(random_bytes, length);
+    if (rv != APR_SUCCESS) {
+        /* CSPRNG failed - this is a critical system error
+         * Return NULL to signal failure - caller must handle this */
+        return NULL;
+    }
 
     switch (format) {
         case RANDOM_FORMAT_HEX:
