@@ -1,7 +1,7 @@
 /*
  * test_mod_random.c - Comprehensive unit tests for mod_random
  *
- * Compile: gcc -o test_mod_random test_mod_random.c -I../src -I/usr/include/apache2 -I/usr/include/apr-1.0 -lapr-1 -laprutil-1 -lssl -lcrypto
+ * Compile: gcc -o test_mod_random test_mod_random.c -I../../src -I/usr/include/apache2 -I/usr/include/apr-1.0 -lapr-1 -laprutil-1 -lssl -lcrypto
  */
 
 #include <stdio.h>
@@ -21,7 +21,7 @@
 #include "http_config.h"
 
 /* Include module types */
-#include "../src/mod_random_types.h"
+#include "../../src/mod_random_types.h"
 
 /* Test framework macros */
 #define TEST(name) static void test_##name(apr_pool_t *pool)

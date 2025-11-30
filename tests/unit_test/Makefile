@@ -1,11 +1,11 @@
-# Makefile for mod_random test suite
+# Makefile for mod_random unit tests
 
 CC = gcc
-CFLAGS = -Wall -Wextra -g -I../src -I/usr/include/apache2 -I/usr/include/apr-1.0
+CFLAGS = -Wall -Wextra -g -I../../src -I/usr/include/apache2 -I/usr/include/apr-1.0
 LDFLAGS = -lapr-1 -laprutil-1 -lssl -lcrypto
 
 # Source files from main module
-SRC_DIR = ../src
+SRC_DIR = ../../src
 SOURCES = $(SRC_DIR)/mod_random_encode.c \
           $(SRC_DIR)/mod_random_crypto.c
 

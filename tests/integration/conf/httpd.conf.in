@@ -1,0 +1,151 @@
+# Apache test configuration for mod_random integration tests
+# Generated from httpd.conf.in by CMake - DO NOT EDIT DIRECTLY
+ServerRoot "@TEST_INTEGRATION_DIR@"
+Listen 8888
+
+# Load required modules (only those that exist as .so files)
+LoadModule mpm_event_module @APACHE_MODULE_DIR@/mod_mpm_event.so
+LoadModule authz_core_module @APACHE_MODULE_DIR@/mod_authz_core.so
+LoadModule headers_module @APACHE_MODULE_DIR@/mod_headers.so
+LoadModule env_module @APACHE_MODULE_DIR@/mod_env.so
+LoadModule dir_module @APACHE_MODULE_DIR@/mod_dir.so
+LoadModule alias_module @APACHE_MODULE_DIR@/mod_alias.so
+
+# Load mod_random
+LoadModule random_module @MOD_RANDOM_PATH@
+
+# Basic server configuration
+ServerName localhost
+PidFile logs/httpd.pid
+ErrorLog logs/error.log
+LogLevel warn
+
+DocumentRoot "htdocs"
+DirectoryIndex index.html
+
+<Directory "htdocs">
+    Require all granted
+</Directory>
+
+# Map all test endpoints to a simple HTML file
+AliasMatch ^/test.* @TEST_INTEGRATION_DIR@/htdocs/test.html
+
+# Test 1: Basic token generation with default settings
+<Location "/test1-basic">
+    RandomAddToken CSRF_TOKEN
+    Header set X-Test-Name "test1-basic"
+    Require all granted
+</Location>
+
+# Test 2: Token with hex format
+<Location "/test2-hex">
+    RandomFormat hex
+    RandomAddToken TOKEN_HEX
+    Header set X-Test-Name "test2-hex"
+</Location>
+
+# Test 3: Token with base64url format
+<Location "/test3-base64url">
+    RandomFormat base64url
+    RandomLength 32
+    RandomAddToken TOKEN_B64URL
+    Header set X-Test-Name "test3-base64url"
+</Location>
+
+# Test 4: Token with custom alphabet
+<Location "/test4-custom">
+    RandomFormat custom
+    RandomAlphabet "0123456789ABCDEF"
+    RandomAlphabetGrouping 4
+    RandomAddToken TOKEN_CUSTOM
+    Header set X-Test-Name "test4-custom"
+</Location>
+
+# Test 5: Token with timestamp
+<Location "/test5-timestamp">
+    RandomIncludeTimestamp on
+    RandomAddToken TOKEN_TIMESTAMP
+    Header set X-Test-Name "test5-timestamp"
+</Location>
+
+# Test 6: Token with prefix and suffix
+<Location "/test6-prefix-suffix">
+    RandomPrefix "csrf_"
+    RandomSuffix "_v1"
+    RandomAddToken TOKEN_PREFIX
+    Header set X-Test-Name "test6-prefix-suffix"
+</Location>
+
+# Test 7: Token with cache (TTL 5 seconds)
+<Location "/test7-cache">
+    RandomTTL 5
+    RandomAddToken CACHED_TOKEN
+    Header set X-Test-Name "test7-cache"
+</Location>
+
+# Test 8: Multiple tokens
+<Location "/test8-multiple">
+    RandomAddToken TOKEN1
+    RandomAddToken TOKEN2
+    RandomAddToken TOKEN3
+    Header set X-Test-Name "test8-multiple"
+</Location>
+
+# Test 9: Token with HTTP header output
+<Location "/test9-header">
+    RandomAddToken TOKEN_VAR header=X-CSRF-Token
+    Header set X-Test-Name "test9-header"
+</Location>
+
+# Test 10: Token with metadata encoding
+<Location "/test10-metadata">
+    RandomEncodeMetadata on
+    RandomExpiry 3600
+    RandomSigningKey "test-secret-key-12345"
+    RandomAddToken TOKEN_META
+    Header set X-Test-Name "test10-metadata"
+</Location>
+
+# Test 11: Token with URL pattern filtering
+<Location "/test11-pattern">
+    RandomOnlyFor "^/test11-pattern/api/"
+    RandomAddToken TOKEN_PATTERN
+    Header set X-Test-Name "test11-pattern"
+</Location>
+
+# Test 12: Minimum length token
+<Location "/test12-minlength">
+    RandomLength 1
+    RandomFormat hex
+    RandomAddToken TOKEN_MIN
+    Header set X-Test-Name "test12-minlength"
+</Location>
+
+# Test 13: Maximum length token
+<Location "/test13-maxlength">
+    RandomLength 1024
+    RandomFormat hex
+    RandomAddToken TOKEN_MAX
+    Header set X-Test-Name "test13-maxlength"
+</Location>
+
+# Test 14: Configuration inheritance (child should override parent)
+<Location "/test14-inherit">
+    RandomFormat hex
+    RandomLength 16
+    RandomAddToken TOKEN_PARENT
+</Location>
+
+<Location "/test14-inherit/child">
+    RandomFormat base64url
+    RandomLength 32
+    RandomAddToken TOKEN_CHILD
+    Header set X-Test-Name "test14-inherit-child"
+</Location>
+
+# Test 15: Cache stress test (rapid requests)
+<Location "/test15-cache-stress">
+    RandomTTL 2
+    RandomAddToken STRESS_TOKEN
+    Header set X-Test-Name "test15-cache-stress"
+</Location>

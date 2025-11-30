@@ -1,0 +1,6 @@
+[Sat Nov 29 19:56:36.234955 2025] [mpm_event:notice] [pid 1304821:tid 125305916909440] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Sat Nov 29 19:56:36.235080 2025] [core:notice] [pid 1304821:tid 125305916909440] AH00094: Command line: '/usr/sbin/apache2 -f /home/pilou/myprojects/mod_random/tests/integration/conf/httpd.conf -D FOREGROUND'
+[Sat Nov 29 19:56:46.018213 2025] [mpm_event:notice] [pid 1304821:tid 125305916909440] AH00491: caught SIGTERM, shutting down
+[Sat Nov 29 20:00:11.854583 2025] [mpm_event:notice] [pid 1307897:tid 137143871690624] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Sat Nov 29 20:00:11.854787 2025] [core:notice] [pid 1307897:tid 137143871690624] AH00094: Command line: '/usr/sbin/apache2 -f /home/pilou/myprojects/mod_random/tests/integration/conf/httpd.conf -D FOREGROUND'
+[Sat Nov 29 20:00:21.783539 2025] [mpm_event:notice] [pid 1307897:tid 137143871690624] AH00491: caught SIGTERM, shutting down

@@ -4,3 +4,6 @@ CMakeCache.txt
 *.o
 *.so
 *.a
+
+# Generated test configuration
+tests/integration/conf/httpd.conf

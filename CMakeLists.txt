@@ -94,9 +94,21 @@ install(FILES "${CMAKE_BINARY_DIR}/mod_random.load"
     OPTIONAL
 )
 
+# Configure integration test Apache configuration
+set(TEST_INTEGRATION_DIR "${CMAKE_SOURCE_DIR}/tests/integration")
+set(MOD_RANDOM_PATH "${CMAKE_BINARY_DIR}/mod_random.so")
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/tests/integration/conf/httpd.conf.in"
+    "${CMAKE_SOURCE_DIR}/tests/integration/conf/httpd.conf"
+    @ONLY
+)
+
 # Print build information
 message(STATUS "Apache include directory: ${APACHE_INCLUDE_DIR}")
 message(STATUS "APR include directory: ${APR_INCLUDE_DIR}")
 message(STATUS "OpenSSL include directory: ${OPENSSL_INCLUDE_DIR}")
 message(STATUS "OpenSSL version: ${OPENSSL_VERSION}")
 message(STATUS "Apache module directory: ${APACHE_MODULE_DIR}")
+message(STATUS "Integration test directory: ${TEST_INTEGRATION_DIR}")
+message(STATUS "Module path: ${MOD_RANDOM_PATH}")
