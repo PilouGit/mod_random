@@ -68,7 +68,7 @@ jobs:
     - name: Install dependencies
       run: |
         dnf update -y
-        dnf install -y httpd-devel apr-devel cmake gcc gcc-c++ make file
+        dnf install -y httpd-devel apr-devel cmake gcc gcc-c++ make file openssl-devel
     
     - name: Configure build
       run: |
